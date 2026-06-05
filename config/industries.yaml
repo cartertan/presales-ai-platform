@@ -1,0 +1,36 @@
+industries:
+  - id: 1
+    name: "eGovernment"
+    key_requirements: ["national PKI", "citizen authentication", "e-services", "interoperability"]
+
+  - id: 2
+    name: "Citizen ID"
+    key_requirements: ["national ID card", "biometric", "smartcard", "identity proofing"]
+
+  - id: 3
+    name: "Telco"
+    key_requirements: ["SIM PKI", "network authentication", "subscriber identity", "IoT certificates"]
+
+  - id: 4
+    name: "Banking and Finance"
+    key_requirements: ["PSD2", "open banking", "HSM", "transaction signing", "regulatory compliance"]
+
+  - id: 5
+    name: "Energy and Utilities"
+    key_requirements: ["IEC 62351", "SCADA security", "OT/IT convergence", "smart meter PKI"]
+
+  - id: 6
+    name: "Oil and Gas"
+    key_requirements: ["operational technology", "asset authentication", "remote access", "NERC CIP"]
+
+  - id: 7
+    name: "Insurance"
+    key_requirements: ["document signing", "policy authentication", "agent identity", "audit trail"]
+
+  - id: 8
+    name: "Trust Centers"
+    key_requirements: ["eIDAS", "qualified certificates", "TSP", "WebTrust", "certificate authority"]
+
+  - id: 9
+    name: "Manufacturing"
+    key_requirements: ["Industry 4.0", "device identity", "supply chain", "code signing", "IIoT"]

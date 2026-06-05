@@ -1,0 +1,28 @@
+models:
+  analysis:
+    name: "deepseek-r1:32b"
+    purpose: "RFP reasoning, requirement extraction, mandatory/optional classification"
+    timeout: 300
+
+  writing:
+    name: "qwen3:32b"
+    purpose: "Proposal writing, summaries, PPT content"
+    timeout: 300
+
+  coding:
+    name: "qwen2.5-coder:32b"
+    purpose: "Code generation and debugging"
+    timeout: 300
+
+  fast:
+    name: "mistral:7b"
+    purpose: "Quick tasks, pre-processing, text cleanup"
+    timeout: 60
+
+  embeddings:
+    name: "nomic-embed-text"
+    purpose: "RAG embeddings for knowledge base"
+    timeout: 30
+
+ollama:
+  base_url: "http://localhost:11434"

@@ -1,0 +1,15 @@
+.env
+*.env
+__pycache__/
+*.pyc
+.DS_Store
+logs/
+*.log
+chroma_db/
+output/
+knowledge/proposals/*.pdf
+knowledge/proposals/*.docx
+knowledge/proposals/*.pptx
+data/rfp/
+venv/
+.venv/
