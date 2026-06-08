@@ -6,7 +6,7 @@ AI-powered presales platform — zero cloud cost, complete data privacy.
 | Phase | Description | Status |
 |-------|-------------|--------|
 | Phase 1 | RFP extraction + compliance Excel | Complete |
-| Phase 2 | Customer summary Word doc | Next |
+| Phase 2 | Customer summary Word doc | Complete |
 | Phase 3 | Knowledge base + RAG | Planned |
 | Phase 4 | Proposal generator | Planned |
 | Phase 5 | PPT generator | Planned |
