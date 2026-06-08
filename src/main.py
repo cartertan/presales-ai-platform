@@ -1,4 +1,4 @@
-"""CLI entry point for the Presales AI Platform — Phase 1 pipeline."""
+"""CLI entry point for the Presales AI Platform — Phase 1 & 2 pipeline."""
 
 import argparse
 import json
@@ -25,6 +25,8 @@ from analyzer import (
 )
 from compliance import generate_excel
 from extractor import extract_pdf_text
+import product_selector
+import summarizer
 
 load_dotenv()
 
@@ -33,6 +35,7 @@ console = Console()
 _DEFAULT_OUTPUT_DIR = os.getenv("OUTPUT_DIR", "output")
 _OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 _ANALYSIS_MODEL = os.getenv("OLLAMA_ANALYSIS_MODEL", "qwq:latest")
+_SUMMARY_MODEL = os.getenv("OLLAMA_SUMMARY_MODEL", "qwen3.6:27b")
 
 
 def _setup_logging(log_level: str) -> None:
@@ -65,7 +68,8 @@ def _parse_args() -> argparse.Namespace:
         epilog=(
             "Examples:\n"
             "  python src/main.py --rfp data/rfp/tender.pdf\n"
-            "  python src/main.py --rfp data/rfp/tender.pdf --phase 1 --output results/\n"
+            "  python src/main.py --rfp data/rfp/tender.pdf --phase 1\n"
+            "  python src/main.py --rfp data/rfp/tender.pdf --phase 2 --output results/\n"
         ),
     )
     parser.add_argument(
@@ -77,10 +81,10 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--phase",
         type=int,
-        default=1,
-        choices=[1],
+        default=2,
+        choices=[1, 2],
         metavar="N",
-        help="Pipeline phase to run (default: 1)",
+        help="Pipeline phase: 1=Excel only, 2=full pipeline with summary Word doc (default: 2)",
     )
     parser.add_argument(
         "--output",
@@ -102,7 +106,7 @@ def _print_banner() -> None:
     console.print(
         Panel.fit(
             "[bold blue]Presales AI Platform[/bold blue]\n"
-            "[dim]RFP  →  Compliance Matrix    Phase 1[/dim]",
+            "[dim]RFP  →  Compliance Matrix  →  Customer Summary[/dim]",
             border_style="blue",
         )
     )
@@ -167,15 +171,19 @@ def _print_outputs_table(outputs: list[dict[str, str]]) -> None:
     console.print(table)
 
 
-def run_phase1(rfp_path: str, output_dir: str) -> int:
-    """Execute Phase 1: extract → analyse → generate compliance Excel.
+def _run_core_pipeline(
+    rfp_path: str, output_dir: str
+) -> tuple[int, dict | None, list[dict[str, str]]]:
+    """Execute the core Phase 1 steps: extract → analyse → generate Excel.
 
     Args:
         rfp_path: Path to the RFP PDF file.
         output_dir: Directory for all output artefacts.
 
     Returns:
-        0 on success, 1 on any failure.
+        Tuple of (exit_code, analysis_dict_or_None, outputs_list).
+        exit_code is 0 on success, 1 on failure.
+        analysis_dict is None when exit_code is 1.
     """
     logger = logging.getLogger(__name__)
     outputs: list[dict[str, str]] = []
@@ -197,17 +205,13 @@ def run_phase1(rfp_path: str, output_dir: str) -> int:
     ) as progress:
 
         # ── Step 1: Extract PDF ──────────────────────────────────────────────
-        task1 = progress.add_task(
-            "[cyan]Step 1/3  Extracting PDF text…", total=None
-        )
+        task1 = progress.add_task("[cyan]Step 1/3  Extracting PDF text…", total=None)
         try:
             extraction = extract_pdf_text(rfp_path)
-        except FileNotFoundError as exc:
+        except (FileNotFoundError, ValueError) as exc:
             progress.stop()
             _abort(str(exc))
-        except ValueError as exc:
-            progress.stop()
-            _abort(str(exc))
+            return 1, None, outputs  # unreachable but satisfies type checker
 
         progress.update(
             task1,
@@ -241,6 +245,7 @@ def run_phase1(rfp_path: str, output_dir: str) -> int:
         except (RuntimeError, ValueError) as exc:
             progress.stop()
             _abort(f"RFP analysis failed: {exc}")
+            return 1, None, outputs
 
         analysis["_rfp_filename"] = extraction["file_name"]
         req_count = len(analysis.get("requirements", []))
@@ -289,6 +294,7 @@ def run_phase1(rfp_path: str, output_dir: str) -> int:
         except OSError as exc:
             progress.stop()
             _abort(f"Excel generation failed: {exc}")
+            return 1, None, outputs
 
         progress.update(
             task3,
@@ -299,6 +305,189 @@ def run_phase1(rfp_path: str, output_dir: str) -> int:
             "output": excel_path,
             "status": "[green]Done[/green]",
         })
+
+    return 0, analysis, outputs
+
+
+def _print_analysis_summary(analysis: dict) -> None:
+    """Render key analysis findings to the console before product selection.
+
+    Args:
+        analysis: The analysis dict returned by analyze_rfp().
+    """
+    requirements = analysis.get("requirements", [])
+    mandatory = [r for r in requirements if str(r.get("type", "")).lower() == "mandatory"]
+    optional = [r for r in requirements if str(r.get("type", "")).lower() != "mandatory"]
+    top_mandatory = mandatory[:5]
+
+    exec_summary = analysis.get("executive_summary", "No executive summary available.")
+    industry = analysis.get("industry_vertical", "Unknown")
+    budget = analysis.get("budget")
+    deadline = analysis.get("deadline")
+    win_themes = analysis.get("win_themes", [])
+    risk_areas = analysis.get("risk_areas", [])
+    eval_criteria = analysis.get("evaluation_criteria", [])
+
+    lines: list[str] = []
+
+    lines.append("[bold cyan]Executive Summary[/bold cyan]")
+    lines.append(exec_summary)
+    lines.append("")
+
+    lines.append("[bold cyan]Top 5 Mandatory Requirements[/bold cyan]")
+    if top_mandatory:
+        for req in top_mandatory:
+            text = req.get("text") or req.get("description") or req.get("requirement", "")
+            lines.append(f"  • {text}")
+    else:
+        lines.append("  [dim]None found[/dim]")
+    lines.append("")
+
+    lines.append(f"[bold cyan]Industry Vertical:[/bold cyan] {industry}")
+    if budget:
+        lines.append(f"[bold cyan]Budget:[/bold cyan] {budget}")
+    if deadline:
+        lines.append(f"[bold cyan]Deadline:[/bold cyan] {deadline}")
+    lines.append("")
+
+    lines.append("[bold cyan]Win Themes[/bold cyan]")
+    if win_themes:
+        for theme in win_themes:
+            lines.append(f"  • {theme}")
+    else:
+        lines.append("  [dim]None identified[/dim]")
+    lines.append("")
+
+    lines.append("[bold cyan]Risk Areas[/bold cyan]")
+    if risk_areas:
+        for risk in risk_areas:
+            lines.append(f"  • {risk}")
+    else:
+        lines.append("  [dim]None identified[/dim]")
+    lines.append("")
+
+    lines.append(
+        f"[bold cyan]Requirements:[/bold cyan] "
+        f"{len(mandatory)} mandatory, {len(optional)} optional "
+        f"({len(requirements)} total)"
+    )
+
+    console.print(
+        Panel(
+            "\n".join(lines),
+            title="[bold blue]RFP Analysis Summary[/bold blue]",
+            border_style="blue",
+            padding=(1, 2),
+        )
+    )
+
+    if eval_criteria:
+        crit_table = Table(
+            title="[bold cyan]Evaluation Criteria[/bold cyan]",
+            box=box.SIMPLE,
+            border_style="cyan",
+        )
+        crit_table.add_column("Criterion", style="white")
+        crit_table.add_column("Weight", style="yellow", justify="right")
+        for criterion in eval_criteria:
+            name = criterion.get("name") or criterion.get("criterion", "")
+            weight = str(criterion.get("weight", "—"))
+            crit_table.add_row(name, weight)
+        console.print(crit_table)
+
+
+def run_phase1(rfp_path: str, output_dir: str) -> int:
+    """Execute Phase 1: extract → analyse → generate compliance Excel.
+
+    Args:
+        rfp_path: Path to the RFP PDF file.
+        output_dir: Directory for all output artefacts.
+
+    Returns:
+        0 on success, 1 on any failure.
+    """
+    exit_code, _, outputs = _run_core_pipeline(rfp_path, output_dir)
+    if exit_code == 0:
+        console.print()
+        _print_outputs_table(outputs)
+    return exit_code
+
+
+def run_phase2(rfp_path: str, output_dir: str) -> int:
+    """Execute Phase 2: Phase 1 + product selection + customer summary Word doc.
+
+    Args:
+        rfp_path: Path to the RFP PDF file.
+        output_dir: Directory for all output artefacts.
+
+    Returns:
+        0 on success, 1 on any failure.
+    """
+    logger = logging.getLogger(__name__)
+
+    # ── Phase 1 core pipeline ────────────────────────────────────────────────
+    exit_code, analysis, outputs = _run_core_pipeline(rfp_path, output_dir)
+    if exit_code != 0:
+        return exit_code
+
+    console.print()
+    console.print(
+        Panel(
+            "[bold green]Phase 1 complete[/bold green] — "
+            "Compliance Matrix Excel generated successfully.",
+            border_style="green",
+        )
+    )
+
+    # ── Display analysis results before product selection ────────────────────
+    console.print()
+    _print_analysis_summary(analysis)
+    console.print()
+    console.print("[bold]Review complete. Now select your products.[/bold]")
+
+    # ── Product selection ────────────────────────────────────────────────────
+    console.print()
+    selected = product_selector.select_products()
+    product_selector.display_selected(selected)
+
+    # ── Phase 2: Generate customer summary Word doc ──────────────────────────
+    console.print()
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        TimeElapsedColumn(),
+        console=console,
+        transient=False,
+    ) as progress:
+        task_summary = progress.add_task(
+            f"[cyan]Generating Customer Summary with {_SUMMARY_MODEL}…", total=None
+        )
+
+        summary_config = {
+            "base_url": _OLLAMA_BASE_URL,
+            "summary_model": _SUMMARY_MODEL,
+            "selected_products": selected,
+        }
+
+        try:
+            summary_path = summarizer.generate_summary(analysis, summary_config, output_dir)
+        except (OSError, Exception) as exc:
+            progress.stop()
+            _abort(f"Summary generation failed: {exc}")
+            return 1
+
+        progress.update(
+            task_summary,
+            description="[green]Customer Summary Word document created[/green]",
+        )
+
+    outputs.append({
+        "step": "4. Customer Summary",
+        "output": summary_path,
+        "status": "[green]Done[/green]",
+    })
+
+    logger.info("Phase 2 complete. Summary saved: %s", summary_path)
 
     console.print()
     _print_outputs_table(outputs)
@@ -314,8 +503,7 @@ def main() -> None:
     if args.phase == 1:
         exit_code = run_phase1(args.rfp, args.output)
     else:
-        console.print(f"[yellow]Phase {args.phase} is not yet implemented.[/yellow]")
-        exit_code = 1
+        exit_code = run_phase2(args.rfp, args.output)
 
     sys.exit(exit_code)
 
