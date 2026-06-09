@@ -174,3 +174,21 @@ See full write-up: [docs/PHASE2_SUMMARY.md](docs/PHASE2_SUMMARY.md)
 
 ## Phase 2 Complete — 8 June 2026
 See full write-up: [docs/PHASE2_SUMMARY.md](docs/PHASE2_SUMMARY.md)
+
+
+---
+
+## Phase 3 Complete — 9 June 2026
+**Version:** v0.3.0
+
+RAG knowledge base fully built and indexed.
+
+- src/rag/indexer.py: ChromaDB ingestion pipeline
+- src/rag/retriever.py: Semantic search engine
+- 11 product knowledge files populated
+- 10 industry knowledge files populated (inc. V2G/Hubject)
+- 287 chunks indexed in ChromaDB
+- Safaricom proposal indexed as first reference
+
+See full write-up: docs/PHASE3_SUMMARY.md
+See lessons learned: docs/LESSONS_LEARNED_SESSION3.md
