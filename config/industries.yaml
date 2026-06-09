@@ -1,36 +1,76 @@
 industries:
-  - id: 1
-    name: "eGovernment"
-    key_requirements: ["national PKI", "citizen authentication", "e-services", "interoperability"]
-
-  - id: 2
-    name: "Citizen ID"
-    key_requirements: ["national ID card", "biometric", "smartcard", "identity proofing"]
-
-  - id: 3
-    name: "Telco"
-    key_requirements: ["SIM PKI", "network authentication", "subscriber identity", "IoT certificates"]
-
-  - id: 4
-    name: "Banking and Finance"
-    key_requirements: ["PSD2", "open banking", "HSM", "transaction signing", "regulatory compliance"]
-
-  - id: 5
-    name: "Energy and Utilities"
-    key_requirements: ["IEC 62351", "SCADA security", "OT/IT convergence", "smart meter PKI"]
-
-  - id: 6
-    name: "Oil and Gas"
-    key_requirements: ["operational technology", "asset authentication", "remote access", "NERC CIP"]
-
-  - id: 7
-    name: "Insurance"
-    key_requirements: ["document signing", "policy authentication", "agent identity", "audit trail"]
-
-  - id: 8
-    name: "Trust Centers"
-    key_requirements: ["eIDAS", "qualified certificates", "TSP", "WebTrust", "certificate authority"]
-
-  - id: 9
-    name: "Manufacturing"
-    key_requirements: ["Industry 4.0", "device identity", "supply chain", "code signing", "IIoT"]
+- id: 1
+  key_requirements:
+  - national PKI
+  - citizen authentication
+  - e-services
+  - interoperability
+  name: eGovernment
+- id: 2
+  key_requirements:
+  - national ID card
+  - biometric
+  - smartcard
+  - identity proofing
+  name: Citizen ID
+- id: 3
+  key_requirements:
+  - SIM PKI
+  - network authentication
+  - subscriber identity
+  - IoT certificates
+  name: Telco
+- id: 4
+  key_requirements:
+  - PSD2
+  - open banking
+  - HSM
+  - transaction signing
+  - regulatory compliance
+  name: Banking and Finance
+- id: 5
+  key_requirements:
+  - IEC 62351
+  - SCADA security
+  - OT/IT convergence
+  - smart meter PKI
+  name: Energy and Utilities
+- id: 6
+  key_requirements:
+  - operational technology
+  - asset authentication
+  - remote access
+  - NERC CIP
+  name: Oil and Gas
+- id: 7
+  key_requirements:
+  - document signing
+  - policy authentication
+  - agent identity
+  - audit trail
+  name: Insurance
+- id: 8
+  key_requirements:
+  - eIDAS
+  - qualified certificates
+  - TSP
+  - WebTrust
+  - certificate authority
+  name: Trust Centers
+- id: 9
+  key_requirements:
+  - Industry 4.0
+  - device identity
+  - supply chain
+  - code signing
+  - IIoT
+  name: Manufacturing
+- id: 10
+  key_requirements:
+  - ISO 15118
+  - Plug and Charge
+  - EVSE certificates
+  - V2G Root CA
+  - contract certificates
+  - OCPP 2.0.1
+  name: V2G and EV Charging

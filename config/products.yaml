@@ -1,60 +1,56 @@
 products:
-  - id: 1
-    name: "Nexus Certificate Manager"
-    short: "NCM"
-    category: "PKI"
-    description: "Enterprise certificate lifecycle management platform"
-
-  - id: 2
-    name: "Nexus Smart ID Digital Access"
-    short: "SIDA"
-    category: "IAM"
-    description: "Digital identity and access management solution"
-
-  - id: 3
-    name: "Nexus Smart ID Identity Manager"
-    short: "SIIM"
-    category: "IAM"
-    description: "Identity lifecycle and workflow management"
-
-  - id: 4
-    name: "Nexus OCSP"
-    short: "OCSP"
-    category: "PKI"
-    description: "Online Certificate Status Protocol responder"
-
-  - id: 5
-    name: "Nexus Protocol Gateway"
-    short: "NPG"
-    category: "PKI"
-    description: "Multi-protocol gateway for certificate enrollment"
-
-  - id: 6
-    name: "Nexus m2trust CLM"
-    short: "CLM"
-    category: "PKI"
-    description: "Machine-to-machine certificate lifecycle manager"
-
-  - id: 7
-    name: "Cosmo Smartcard"
-    short: "COSMO"
-    category: "Hardware"
-    description: "Enterprise smartcard operating system"
-
-  - id: 8
-    name: "IDPlug Middleware"
-    short: "IDPLUG"
-    category: "Middleware"
-    description: "Smartcard middleware for desktop integration"
-
-  - id: 9
-    name: "Nexus Mobile Client"
-    short: "NMC"
-    category: "Mobile"
-    description: "Mobile PKI client for certificate operations"
-
-  - id: 10
-    name: "Smart Desktop Application"
-    short: "SDA"
-    category: "Desktop"
-    description: "Desktop application for certificate and identity management"
+- category: PKI
+  description: Enterprise certificate lifecycle management platform
+  id: 1
+  name: Nexus Certificate Manager
+  short: NCM
+- category: IAM
+  description: Digital identity and access management solution
+  id: 2
+  name: Nexus Smart ID Digital Access
+  short: SIDA
+- category: IAM
+  description: Identity lifecycle and workflow management
+  id: 3
+  name: Nexus Smart ID Identity Manager
+  short: SIIM
+- category: PKI
+  description: Online Certificate Status Protocol responder
+  id: 4
+  name: Nexus OCSP
+  short: OCSP
+- category: PKI
+  description: Multi-protocol gateway for certificate enrollment
+  id: 5
+  name: Nexus Protocol Gateway
+  short: NPG
+- category: PKI
+  description: Machine-to-machine certificate lifecycle manager
+  id: 6
+  name: Nexus m2trust CLM
+  short: CLM
+- category: Hardware
+  description: Enterprise smartcard operating system
+  id: 7
+  name: Cosmo Smartcard
+  short: COSMO
+- category: Middleware
+  description: Smartcard middleware for desktop integration
+  id: 8
+  name: IDPlug Middleware
+  short: IDPLUG
+- category: Mobile
+  description: Mobile PKI client for certificate operations
+  id: 9
+  name: Nexus Mobile Client
+  short: NMC
+- category: Desktop
+  description: Desktop application for certificate and identity management
+  id: 10
+  name: Smart Desktop Application
+  short: SDA
+- category: Mobile
+  description: Mobile SDK for embedding PKI credentials into iOS and Android applications
+  id: 11
+  name: Nexus Mobile SDK
+  short: NMS
