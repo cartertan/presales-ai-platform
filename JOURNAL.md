@@ -192,3 +192,34 @@ RAG knowledge base fully built and indexed.
 
 See full write-up: docs/PHASE3_SUMMARY.md
 See lessons learned: docs/LESSONS_LEARNED_SESSION3.md
+
+---
+
+## Phase 4 Complete — 10 June 2026
+**Version:** v0.4.0
+**Status:** Complete
+
+17-section Word proposal generator built (src/proposal.py, 1369 lines).
+
+**Models used:**
+- qwq:latest — RFP analysis and reasoning
+- granite4.1:30b — Compliance writing (sections requiring regulatory/enterprise tone)
+- qwen3.6:27b — Company profile and customer references
+- deepseek-r1:32b — Assumptions section
+
+**Pipeline:** ~8 minutes for full 5-step pipeline
+
+**Output:** RFQ2600170_Public_Key_Inf_Proposal_Draft_20260610.docx
+
+**Key decisions:**
+- Multi-model strategy: each section type assigned to the model best suited for it
+- XML markers used for parsing model output cleanly across all sections
+- Sections 12–14 combined into a single call to reduce round-trips and preserve flow
+
+**BLANK placeholders (intentional — require human input):**
+- Section 5: Solution Architecture
+- Section 8: Technical Sizing
+- Section 15: Project Timeline
+- Section 16: Commercials
+
+**Next phase:** Phase 5 — PowerPoint generator
