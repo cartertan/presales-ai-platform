@@ -1,4 +1,4 @@
-"""CLI entry point for the Presales AI Platform — Phase 1 & 2 pipeline."""
+"""CLI entry point for the Presales AI Platform — Phase 1, 2 & 4 pipeline."""
 
 import argparse
 import json
@@ -26,6 +26,7 @@ from analyzer import (
 from compliance import generate_excel
 from extractor import extract_pdf_text
 import product_selector
+import proposal
 import summarizer
 
 load_dotenv()
@@ -36,6 +37,10 @@ _DEFAULT_OUTPUT_DIR = os.getenv("OUTPUT_DIR", "output")
 _OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 _ANALYSIS_MODEL = os.getenv("OLLAMA_ANALYSIS_MODEL", "qwq:latest")
 _SUMMARY_MODEL = os.getenv("OLLAMA_SUMMARY_MODEL", "qwen3.6:27b")
+_WRITING_MODEL = os.getenv("OLLAMA_WRITING_MODEL", "qwen3.6:27b")
+_COMPLIANCE_MODEL = os.getenv("OLLAMA_COMPLIANCE_MODEL", "granite4.1:30b")
+_REASONING_MODEL = os.getenv("OLLAMA_REASONING_BACKUP", "deepseek-r1:32b")
+_FAST_MODEL = os.getenv("OLLAMA_FAST_MODEL", "gemma4:e4b")
 
 
 def _setup_logging(log_level: str) -> None:
@@ -82,9 +87,12 @@ def _parse_args() -> argparse.Namespace:
         "--phase",
         type=int,
         default=2,
-        choices=[1, 2],
+        choices=[1, 2, 4],
         metavar="N",
-        help="Pipeline phase: 1=Excel only, 2=full pipeline with summary Word doc (default: 2)",
+        help=(
+            "Pipeline phase: 1=Excel only, 2=full pipeline with summary Word doc, "
+            "4=full pipeline + proposal draft (default: 2)"
+        ),
     )
     parser.add_argument(
         "--output",
@@ -106,7 +114,7 @@ def _print_banner() -> None:
     console.print(
         Panel.fit(
             "[bold blue]Presales AI Platform[/bold blue]\n"
-            "[dim]RFP  →  Compliance Matrix  →  Customer Summary[/dim]",
+            "[dim]RFP  →  Compliance Matrix  →  Customer Summary  →  Proposal Draft[/dim]",
             border_style="blue",
         )
     )
@@ -413,12 +421,15 @@ def run_phase1(rfp_path: str, output_dir: str) -> int:
     return exit_code
 
 
-def run_phase2(rfp_path: str, output_dir: str) -> int:
+def run_phase2(rfp_path: str, output_dir: str, generate_proposal_doc: bool = False) -> int:
     """Execute Phase 2: Phase 1 + product selection + customer summary Word doc.
+
+    When generate_proposal_doc is True (Phase 4), also generates a proposal draft.
 
     Args:
         rfp_path: Path to the RFP PDF file.
         output_dir: Directory for all output artefacts.
+        generate_proposal_doc: When True, also generate a proposal draft .docx.
 
     Returns:
         0 on success, 1 on any failure.
@@ -489,6 +500,50 @@ def run_phase2(rfp_path: str, output_dir: str) -> int:
 
     logger.info("Phase 2 complete. Summary saved: %s", summary_path)
 
+    # ── Phase 4: Generate proposal draft Word doc ────────────────────────────
+    if generate_proposal_doc:
+        console.print()
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            TimeElapsedColumn(),
+            console=console,
+            transient=False,
+        ) as progress:
+            task_proposal = progress.add_task(
+                "[cyan]Generating proposal draft…", total=None
+            )
+
+            proposal_config = {
+                "ollama_base_url": _OLLAMA_BASE_URL,
+                "writing_model": _WRITING_MODEL,
+                "compliance_model": _COMPLIANCE_MODEL,
+                "analysis_model": _REASONING_MODEL,
+                "fast_model": _FAST_MODEL,
+            }
+
+            try:
+                proposal_path = proposal.generate_proposal(
+                    analysis, selected, output_dir, proposal_config
+                )
+            except (OSError, Exception) as exc:
+                progress.stop()
+                _abort(f"Proposal generation failed: {exc}")
+                return 1
+
+            progress.update(
+                task_proposal,
+                description="[green]Proposal draft Word document created[/green]",
+            )
+
+        outputs.append({
+            "step": "5. Proposal Draft",
+            "output": proposal_path,
+            "status": "[green]Done[/green]",
+        })
+
+        logger.info("Phase 4 complete. Proposal saved: %s", proposal_path)
+
     console.print()
     _print_outputs_table(outputs)
     return 0
@@ -502,6 +557,8 @@ def main() -> None:
 
     if args.phase == 1:
         exit_code = run_phase1(args.rfp, args.output)
+    elif args.phase == 4:
+        exit_code = run_phase2(args.rfp, args.output, generate_proposal_doc=True)
     else:
         exit_code = run_phase2(args.rfp, args.output)
 

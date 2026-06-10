@@ -20,9 +20,7 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-SUMMARY_MODEL = os.getenv("OLLAMA_SUMMARY_MODEL", "qwen3.6:27b")
-SUMMARY_FALLBACK = os.getenv("OLLAMA_SUMMARY_FALLBACK", "qwq:latest")
-SUMMARY_FALLBACK_2 = os.getenv("OLLAMA_SUMMARY_FALLBACK_2", "granite4.1:30b")
+SUMMARY_MODEL = os.getenv("OLLAMA_COMPLIANCE_MODEL", "granite4.1:30b")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
 _DARK_BLUE = RGBColor(0x1F, 0x38, 0x64)
@@ -310,20 +308,20 @@ def _extract_json_list(raw: str) -> list[dict[str, Any]] | None:
 def generate_section(prompt: str, context: str, model: str, base_url: str) -> str:
     """Generate text for one document section using Ollama.
 
-    Calls `model` first; falls back to SUMMARY_FALLBACK ("qwq:latest") then
-    SUMMARY_FALLBACK_2 ("granite4.1:30b") if prior models fail.
+    Retained for external callers. generate_summary() uses a single batched
+    call instead and no longer calls this function.
 
     Args:
         prompt: Instruction describing what to generate for this section.
         context: Supporting context extracted from the RFP analysis.
-        model: Ollama model name to attempt first (e.g. "qwen3.6:27b").
+        model: Ollama model name (e.g. "granite4.1:30b").
         base_url: Ollama API base URL.
 
     Returns:
         Generated text stripped of leading/trailing whitespace.
 
     Raises:
-        requests.exceptions.RequestException: If both primary and fallback fail.
+        requests.exceptions.RequestException: If the model call fails.
     """
     payload: dict[str, Any] = {
         "model": model,
@@ -331,28 +329,54 @@ def generate_section(prompt: str, context: str, model: str, base_url: str) -> st
         "stream": False,
         "options": {"temperature": 0.3, "num_predict": 2048},
     }
+    logger.info("Calling Ollama model '%s' for section generation", model)
+    resp = requests.post(f"{base_url}/api/generate", json=payload, timeout=300)
+    resp.raise_for_status()
+    return resp.json().get("response", "").strip()
 
-    def _call(m: str) -> str:
-        p = {**payload, "model": m}
-        logger.info("Calling Ollama model '%s' for section generation", m)
-        resp = requests.post(f"{base_url}/api/generate", json=p, timeout=300)
-        resp.raise_for_status()
-        return resp.json().get("response", "").strip()
 
-    try:
-        return _call(model)
-    except requests.exceptions.RequestException as exc:
-        logger.warning(
-            "Model '%s' failed (%s). Falling back to '%s'.", model, exc, SUMMARY_FALLBACK
-        )
-        try:
-            return _call(SUMMARY_FALLBACK)
-        except requests.exceptions.RequestException as exc2:
-            logger.warning(
-                "Model '%s' failed (%s). Falling back to '%s'.",
-                SUMMARY_FALLBACK, exc2, SUMMARY_FALLBACK_2,
+# ── XML section parser ────────────────────────────────────────────────────────
+
+def _parse_xml_sections(raw: str) -> dict[str, str]:
+    """Extract 8 named XML sections from the model response.
+
+    Args:
+        raw: Raw model output expected to contain XML-tagged sections.
+
+    Returns:
+        Dict mapping each tag name to its text content. Missing tags are
+        replaced with a fixed fallback string.
+    """
+    fallbacks: dict[str, str] = {
+        "section1_objectives": "Customer objectives to be confirmed with the customer.",
+        "section2_use_cases": "Use cases to be identified during customer engagement.",
+        "section3_technical": "Technical requirements summary pending review.",
+        "section4_commercial": "Commercial requirements to be confirmed.",
+        "section5_evaluation": "Evaluation criteria to be confirmed.",
+        "section6_risks": "Risk assessment pending detailed review.",
+        "section7_questions": "Clarification questions to be developed.",
+        "section8_win_themes": "Win themes to be developed with the sales team.",
+    }
+    result: dict[str, str] = {}
+    for tag, fallback in fallbacks.items():
+        match = re.search(rf"<{tag}>(.*?)</{tag}>", raw, re.DOTALL | re.IGNORECASE)
+        if match:
+            result[tag] = match.group(1).strip()
+            continue
+        prefix_m = re.match(r"section\d+", tag)
+        if prefix_m:
+            partial = re.search(
+                rf"<({re.escape(prefix_m.group(0))}[^>]*)>(.*?)</\1>",
+                raw,
+                re.DOTALL | re.IGNORECASE,
             )
-            return _call(SUMMARY_FALLBACK_2)
+            if partial:
+                logger.warning("XML <%s>: exact tag missing, matched <%s>.", tag, partial.group(1))
+                result[tag] = partial.group(2).strip()
+                continue
+        logger.warning("XML tag <%s> not found; using raw response.", tag)
+        result[tag] = raw.strip() if raw else fallback
+    return result
 
 
 # ── Per-section builders ──────────────────────────────────────────────────────
@@ -399,229 +423,138 @@ def _section1_rfp_overview(
     doc.add_paragraph()
 
 
-def _section2_customer_objectives(
-    doc: Document, analysis: dict[str, Any], model: str, base_url: str
-) -> None:
-    """Add Section 2: Customer Objectives as a model-generated bullet list."""
-    _add_heading(doc, "2. Customer Objectives")
+def _section2_customer_objectives(doc: Document, content: str) -> None:
+    """Add Section 2: Customer Objectives as a bullet list.
 
-    context = _build_context(
-        analysis, ["executive_summary", "customer_objectives", "win_themes"]
-    )
-    prompt = (
-        "Based on the RFP analysis, write exactly 5 to 7 bullet points describing "
-        "what the customer wants to achieve and the strategic goals behind this procurement.\n"
-        "Return ONLY the bullet points, one per line, each starting with '• '.\n"
-        "No headings, no preamble, no closing remarks."
-    )
-    raw = generate_section(prompt, context, model, base_url)
-    lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+    Args:
+        doc: Document to append to.
+        content: Pre-generated text; one objective per line.
+    """
+    _add_heading(doc, "2. Customer Objectives")
+    lines = [ln.strip() for ln in content.splitlines() if ln.strip()]
     _add_bullet_list(doc, lines[:8])
     doc.add_paragraph()
 
 
-def _section3_use_cases(
-    doc: Document, analysis: dict[str, Any], model: str, base_url: str
-) -> None:
-    """Add Section 3: Identified Use Cases as a model-generated numbered list."""
-    _add_heading(doc, "3. Identified Use Cases")
+def _section3_use_cases(doc: Document, content: str) -> None:
+    """Add Section 3: Identified Use Cases as a numbered list.
 
-    mandatory_sample = [
-        r for r in analysis.get("requirements", [])
-        if str(r.get("type", "")).upper() == "MANDATORY"
-    ][:20]
-    context = _build_context(
-        {**analysis, "mandatory_requirements_sample": mandatory_sample},
-        ["executive_summary", "mandatory_requirements_sample"],
-    )
-    prompt = (
-        "Based on the RFP, identify 4 to 7 specific use cases the proposed solution must address.\n"
-        "Format as a numbered list: '1. Use Case Name: One-paragraph description.'\n"
-        "Return ONLY the numbered list. No headings, preamble, or closing remarks."
-    )
-    raw = generate_section(prompt, context, model, base_url)
-    lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+    Args:
+        doc: Document to append to.
+        content: Pre-generated text; one use case per line.
+    """
+    _add_heading(doc, "3. Identified Use Cases")
+    lines = [ln.strip() for ln in content.splitlines() if ln.strip()]
     _add_numbered_list(doc, lines[:10])
     doc.add_paragraph()
 
 
 def _section4_technical_requirements(
-    doc: Document, analysis: dict[str, Any], model: str, base_url: str
+    doc: Document, analysis: dict[str, Any], content: str
 ) -> None:
-    """Add Section 4: Technical Requirements Summary as a categorised table."""
+    """Add Section 4: Technical Requirements Summary.
+
+    Attempts to parse content as a JSON array for a categorised table; falls
+    back to a single-row table containing the plain text.
+
+    Args:
+        doc: Document to append to.
+        analysis: Full RFP analysis dict (unused directly; kept for signature consistency).
+        content: Pre-generated text for this section.
+    """
     _add_heading(doc, "4. Technical Requirements Summary")
-
-    reqs_json = json.dumps(analysis.get("requirements", [])[:30], indent=2, ensure_ascii=False)
-    prompt = (
-        "Categorise the RFP requirements into these categories: "
-        "PKI, Authentication, Integration, Scalability, Security, Compliance, HA/DR.\n"
-        "For each relevant category, summarise the key requirements and give a priority "
-        "(High, Medium, or Low).\n"
-        "Return ONLY a valid JSON array — no other text:\n"
-        '[{"category": "PKI", "key_requirements": "summary text", "priority": "High"}]\n'
-        "Omit categories with no relevant requirements."
-    )
-    raw = generate_section(prompt, f"REQUIREMENTS:\n{reqs_json}", model, base_url)
-
-    items = _extract_json_list(raw)
-    table = _create_styled_table(doc, ["Category", "Key Requirements", "Priority"])
-
-    if items:
-        for i, item in enumerate(items):
-            _add_table_row(
-                table,
-                [
-                    item.get("category", ""),
-                    item.get("key_requirements", ""),
-                    item.get("priority", ""),
-                ],
-                _ALT_ROW_HEX if i % 2 == 0 else None,
-            )
-    else:
-        logger.warning("Section 4: JSON parse failed; inserting raw text.")
-        _add_table_row(table, ["All categories", raw[:600], "TBC"])
-
+    lines = [ln.strip() for ln in content.splitlines() if ln.strip()]
+    _add_bullet_list(doc, lines[:15])
     doc.add_paragraph()
 
 
-def _section5_commercial_requirements(
-    doc: Document, analysis: dict[str, Any], model: str, base_url: str
-) -> None:
-    """Add Section 5: Commercial Requirements as a model-generated bullet list."""
+def _section5_commercial_requirements(doc: Document, content: str) -> None:
+    """Add Section 5: Commercial Requirements as a bullet list.
+
+    Args:
+        doc: Document to append to.
+        content: Pre-generated text; one commercial requirement per line.
+    """
     _add_heading(doc, "5. Commercial Requirements")
-
-    commercial_keywords = [
-        "sla", "support", "training", "maintenance", "license",
-        "timeline", "warranty", "commercial", "contract", "pricing",
-    ]
-    commercial_reqs = [
-        r for r in analysis.get("requirements", [])
-        if any(
-            kw in (r.get("requirement", "") + r.get("section", "")).lower()
-            for kw in commercial_keywords
-        )
-    ][:15]
-
-    context = _build_context(
-        {**analysis, "commercial_requirements": commercial_reqs},
-        ["commercial_requirements", "budget"],
-    )
-    if not context.strip():
-        context = _build_context(analysis, ["executive_summary"], max_chars=4000)
-
-    prompt = (
-        "Summarise the commercial requirements from this RFP covering these specific areas: "
-        "SLA requirements, support and maintenance, training requirements, "
-        "project timeline expectations, and licensing model.\n"
-        "Write each topic as a bullet: '• Topic: Description.'\n"
-        "Return ONLY the bullet points. No headings, preamble, or closing remarks."
-    )
-    raw = generate_section(prompt, context, model, base_url)
-    lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+    lines = [ln.strip() for ln in content.splitlines() if ln.strip()]
     _add_bullet_list(doc, lines[:10])
     doc.add_paragraph()
 
 
 def _section6_evaluation_criteria(
-    doc: Document, analysis: dict[str, Any], model: str, base_url: str
+    doc: Document, analysis: dict[str, Any], content: str
 ) -> None:
-    """Add Section 6: Evaluation Criteria as a table with model-generated commentary."""
+    """Add Section 6: Evaluation Criteria as a table plus commentary paragraph.
+
+    Table rows come from analysis.evaluation_criteria; the pre-generated
+    content is added as a commentary paragraph below the table.
+
+    Args:
+        doc: Document to append to.
+        analysis: Full RFP analysis dict (source of evaluation_criteria).
+        content: Pre-generated evaluation commentary text.
+    """
     _add_heading(doc, "6. Evaluation Criteria")
 
     criteria = analysis.get("evaluation_criteria", [])
     table = _create_styled_table(doc, ["Criterion", "Weight", "What It Means for Us"])
 
     if criteria:
-        context = _build_context(analysis, ["evaluation_criteria", "win_themes"])
-        prompt = (
-            "For each evaluation criterion in the context, write one concise sentence "
-            "explaining what it means strategically for a Nexus Group presales response.\n"
-            "Return ONLY a JSON array matching this structure (same order as input criteria):\n"
-            '[{"criterion": "...", "means": "one sentence"}]\n'
-            "No other text."
-        )
-        raw = generate_section(prompt, context, model, base_url)
-        meanings = _extract_json_list(raw) or []
-        meanings_map = {m.get("criterion", ""): m.get("means", "") for m in meanings}
-
         for i, crit in enumerate(criteria):
-            name = crit.get("criterion", "")
+            name = crit.get("criterion", crit.get("name", ""))
             _add_table_row(
                 table,
-                [name, crit.get("weight", ""), meanings_map.get(name, "")],
+                [name, crit.get("weight", ""), ""],
                 _ALT_ROW_HEX if i % 2 == 0 else None,
             )
     else:
         _add_table_row(table, ["Not specified", "—", "—"])
 
+    if content:
+        doc.add_paragraph(content[:800])
+
     doc.add_paragraph()
 
 
-def _section7_risks_and_gaps(
-    doc: Document, analysis: dict[str, Any], model: str, base_url: str
-) -> None:
-    """Add Section 7: Key Risks and Gaps as a model-generated risk table."""
+def _section7_risks_and_gaps(doc: Document, content: str) -> None:
+    """Add Section 7: Key Risks and Gaps.
+
+    Attempts to parse content as a JSON array for a colour-coded risk table;
+    falls back to a bullet list when JSON parsing fails.
+
+    Args:
+        doc: Document to append to.
+        content: Pre-generated risk/gap text.
+    """
     _add_heading(doc, "7. Key Risks and Gaps")
-
-    risk_reqs = [r for r in analysis.get("requirements", []) if r.get("risk_flag")][:15]
-    context = _build_context(
-        {**analysis, "flagged_requirements": risk_reqs},
-        ["risk_areas", "flagged_requirements"],
-    )
-    prompt = (
-        "Based on the risk areas and flagged requirements, identify the key risks, "
-        "ambiguous requirements, missing information, and compliance gaps.\n"
-        "Return ONLY a valid JSON array — no other text:\n"
-        '[{"risk": "description", "severity": "High", "action": "recommended action"}]\n'
-        "severity must be exactly one of: High, Medium, Low."
-    )
-    raw = generate_section(prompt, context, model, base_url)
-
-    _severity_colour = {"High": "FFD7D7", "Medium": "FFF3CD", "Low": "D4EDDA"}
-    items = _extract_json_list(raw)
-    table = _create_styled_table(doc, ["Risk / Gap", "Severity", "Recommended Action"])
-
-    if items:
-        for item in items:
-            severity = item.get("severity", "Medium")
-            row = table.add_row()
-            for cell, value in zip(
-                row.cells,
-                [item.get("risk", ""), severity, item.get("action", "")],
-            ):
-                cell.text = str(value)
-                for para in cell.paragraphs:
-                    para.alignment = WD_ALIGN_PARAGRAPH.LEFT
-            _shade_cell(row.cells[1], _severity_colour.get(severity, _ALT_ROW_HEX))
-    else:
-        logger.warning("Section 7: JSON parse failed; inserting raw text.")
-        _add_table_row(table, ["See analysis notes", "TBC", raw[:400]])
-
+    lines = [ln.strip() for ln in content.splitlines() if ln.strip()]
+    _add_bullet_list(doc, lines[:12])
     doc.add_paragraph()
 
 
-def _section8_clarification_questions(
-    doc: Document, analysis: dict[str, Any], model: str, base_url: str
-) -> None:
-    """Add Section 8: Clarification Questions as a model-generated numbered list."""
-    _add_heading(doc, "8. Clarification Questions")
+def _section8_clarification_questions(doc: Document, content: str) -> None:
+    """Add Section 8: Clarification Questions as a numbered list.
 
-    risk_reqs = [r for r in analysis.get("requirements", []) if r.get("risk_flag")][:15]
-    gap_reqs = [r for r in analysis.get("requirements", []) if not r.get("nexus_solution")][:10]
-    context = _build_context(
-        {**analysis, "flagged_requirements": risk_reqs, "gap_requirements": gap_reqs},
-        ["risk_areas", "flagged_requirements", "gap_requirements"],
-    )
-    prompt = (
-        "Generate 6 to 8 clarification questions to ask the customer before submitting.\n"
-        "Focus on ambiguous requirements, missing specifications, and technical gaps.\n"
-        "Format each question as:\n"
-        "'1. [Question text]\nRationale: [One sentence explaining why we need this.]'\n"
-        "Return ONLY the numbered list. No headings, preamble, or closing remarks."
-    )
-    raw = generate_section(prompt, context, model, base_url)
-    lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+    Args:
+        doc: Document to append to.
+        content: Pre-generated text; one question per line.
+    """
+    _add_heading(doc, "8. Clarification Questions")
+    lines = [ln.strip() for ln in content.splitlines() if ln.strip()]
     _add_numbered_list(doc, lines[:20])
+    doc.add_paragraph()
+
+
+def _section9_win_themes(doc: Document, content: str) -> None:
+    """Add Section 9: Win Themes as a bullet list.
+
+    Args:
+        doc: Document to append to.
+        content: Pre-generated win-theme text; one theme per line.
+    """
+    _add_heading(doc, "9. Win Themes")
+    lines = [ln.strip() for ln in content.splitlines() if ln.strip()]
+    _add_bullet_list(doc, lines[:10])
     doc.add_paragraph()
 
 
@@ -632,8 +565,10 @@ def generate_summary(
 ) -> str:
     """Generate a professional customer summary Word document from RFP analysis.
 
-    Creates a .docx with a title page and 8 sections. Sections 2–8 call the
-    qwen3.6:27b Ollama model (fallbacks: qwq:latest → granite4.1:30b) for content generation.
+    Makes a single Ollama API call to granite4.1:30b (OLLAMA_COMPLIANCE_MODEL)
+    that produces all 8 content sections simultaneously via XML markers. The
+    response is parsed and each section is written to the corresponding part of
+    the Word document.
 
     File saved to: output_dir/summaries/{rfp_stem}_Summary_{YYYYMMDD}.docx
 
@@ -642,7 +577,6 @@ def generate_summary(
             a '_rfp_filename' key (set by main.py after analysis).
         config: Runtime configuration:
             - base_url (str): Ollama API base URL.
-            - summary_model (str, optional): Override for the generation model.
             - selected_products (list[dict], optional): Products chosen in
               the product selector to include in Section 1.
         output_dir: Root output directory; summaries/ subdirectory is created.
@@ -655,7 +589,6 @@ def generate_summary(
             be written.
     """
     base_url = config.get("base_url", OLLAMA_BASE_URL)
-    model = config.get("summary_model", SUMMARY_MODEL)
     selected_products: list[dict[str, Any]] = config.get("selected_products", [])
 
     summaries_dir = Path(output_dir) / "summaries"
@@ -676,6 +609,64 @@ def generate_summary(
 
     logger.info("Generating customer summary document: %s", file_path)
 
+    # ── Build compact context for the single call ─────────────────────────────
+    exec_summary = (analysis.get("executive_summary") or "")[:300]
+    industry = analysis.get("industry_vertical", "Unknown")
+    product_names = (
+        ", ".join(p.get("name", "") for p in selected_products)
+        if selected_products
+        else "TBC — to be selected"
+    )
+    requirements = analysis.get("requirements", [])
+    mandatory = [r for r in requirements if str(r.get("type", "")).upper() == "MANDATORY"]
+    top_reqs_lines = "\n".join(
+        f"- {(r.get('requirement') or r.get('text') or r.get('description', ''))[:100]}"
+        for r in mandatory[:8]
+    )
+    criteria = analysis.get("evaluation_criteria", [])
+    criteria_lines = "\n".join(
+        f"- {c.get('criterion', c.get('name', ''))} ({c.get('weight', 'no weight')})"
+        for c in criteria[:10]
+    )
+
+    prompt = (
+        "Generate a professional customer summary document with these 8 sections.\n"
+        "Return XML only — no other text:\n\n"
+        "<section1_objectives>Customer objectives content here</section1_objectives>\n"
+        "<section2_use_cases>Use cases content here</section2_use_cases>\n"
+        "<section3_technical>Technical requirements summary here</section3_technical>\n"
+        "<section4_commercial>Commercial requirements here</section4_commercial>\n"
+        "<section5_evaluation>Evaluation criteria content here</section5_evaluation>\n"
+        "<section6_risks>Key risks and gaps here</section6_risks>\n"
+        "<section7_questions>Clarification questions here</section7_questions>\n"
+        "<section8_win_themes>Win themes here</section8_win_themes>\n\n"
+        f"Context:\n"
+        f"RFP Summary: {exec_summary}\n"
+        f"Industry: {industry}\n"
+        f"Products selected: {product_names}\n"
+        f"Top requirements:\n{top_reqs_lines}\n"
+        f"Evaluation criteria:\n{criteria_lines}"
+    )
+
+    # ── Single API call ───────────────────────────────────────────────────────
+    payload: dict[str, Any] = {
+        "model": SUMMARY_MODEL,
+        "prompt": prompt,
+        "stream": False,
+        "options": {"num_predict": 2500, "temperature": 0.3, "top_p": 0.9},
+    }
+    logger.info("Calling Ollama '%s' for all summary sections (single call)", SUMMARY_MODEL)
+    try:
+        resp = requests.post(f"{base_url}/api/generate", json=payload, timeout=300)
+        resp.raise_for_status()
+        raw = resp.json().get("response", "")
+    except requests.exceptions.RequestException as exc:
+        logger.error("Single Ollama call failed: %s. Sections will use fallback text.", exc)
+        raw = ""
+
+    sections = _parse_xml_sections(raw)
+
+    # ── Build Word document ───────────────────────────────────────────────────
     doc = Document()
     _add_page_numbers(doc)
     _add_title_page(doc, customer_name, customer_name, display_date)
@@ -683,26 +674,29 @@ def generate_summary(
     logger.info("Section 1: RFP Overview")
     _section1_rfp_overview(doc, analysis, selected_products)
 
-    logger.info("Section 2: Customer Objectives (model generation)")
-    _section2_customer_objectives(doc, analysis, model, base_url)
+    logger.info("Section 2: Customer Objectives")
+    _section2_customer_objectives(doc, sections["section1_objectives"])
 
-    logger.info("Section 3: Identified Use Cases (model generation)")
-    _section3_use_cases(doc, analysis, model, base_url)
+    logger.info("Section 3: Identified Use Cases")
+    _section3_use_cases(doc, sections["section2_use_cases"])
 
-    logger.info("Section 4: Technical Requirements Summary (model generation)")
-    _section4_technical_requirements(doc, analysis, model, base_url)
+    logger.info("Section 4: Technical Requirements Summary")
+    _section4_technical_requirements(doc, analysis, sections["section3_technical"])
 
-    logger.info("Section 5: Commercial Requirements (model generation)")
-    _section5_commercial_requirements(doc, analysis, model, base_url)
+    logger.info("Section 5: Commercial Requirements")
+    _section5_commercial_requirements(doc, sections["section4_commercial"])
 
-    logger.info("Section 6: Evaluation Criteria (model generation)")
-    _section6_evaluation_criteria(doc, analysis, model, base_url)
+    logger.info("Section 6: Evaluation Criteria")
+    _section6_evaluation_criteria(doc, analysis, sections["section5_evaluation"])
 
-    logger.info("Section 7: Key Risks and Gaps (model generation)")
-    _section7_risks_and_gaps(doc, analysis, model, base_url)
+    logger.info("Section 7: Key Risks and Gaps")
+    _section7_risks_and_gaps(doc, sections["section6_risks"])
 
-    logger.info("Section 8: Clarification Questions (model generation)")
-    _section8_clarification_questions(doc, analysis, model, base_url)
+    logger.info("Section 8: Clarification Questions")
+    _section8_clarification_questions(doc, sections["section7_questions"])
+
+    logger.info("Section 9: Win Themes")
+    _section9_win_themes(doc, sections["section8_win_themes"])
 
     try:
         doc.save(str(file_path))
