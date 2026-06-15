@@ -27,6 +27,7 @@ from compliance import generate_excel
 from extractor import extract_pdf_text
 import product_selector
 import proposal
+import pptgen
 import summarizer
 
 load_dotenv()
@@ -543,6 +544,46 @@ def run_phase2(rfp_path: str, output_dir: str, generate_proposal_doc: bool = Fal
         })
 
         logger.info("Phase 4 complete. Proposal saved: %s", proposal_path)
+
+        # ── Phase 5: Generate PowerPoint deck ────────────────────────────────
+        console.print()
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            TimeElapsedColumn(),
+            console=console,
+            transient=False,
+        ) as progress:
+            task_deck = progress.add_task(
+                "[cyan]Generating PowerPoint deck…", total=None
+            )
+
+            deck_config = {
+                "ollama_base_url": _OLLAMA_BASE_URL,
+                "ppt_model": _COMPLIANCE_MODEL,
+            }
+
+            try:
+                deck_path = pptgen.generate_deck(
+                    analysis, selected, output_dir, deck_config
+                )
+            except (OSError, Exception) as exc:
+                progress.stop()
+                _abort(f"Deck generation failed: {exc}")
+                return 1
+
+            progress.update(
+                task_deck,
+                description="[green]PowerPoint deck created[/green]",
+            )
+
+        outputs.append({
+            "step": "6. Presentation Deck",
+            "output": deck_path,
+            "status": "[green]Done[/green]",
+        })
+
+        logger.info("Phase 5 complete. Deck saved: %s", deck_path)
 
     console.print()
     _print_outputs_table(outputs)
