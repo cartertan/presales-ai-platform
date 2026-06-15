@@ -223,3 +223,55 @@ See lessons learned: docs/LESSONS_LEARNED_SESSION3.md
 - Section 16: Commercials
 
 **Next phase:** Phase 5 — PowerPoint generator
+
+---
+
+## Phase 5 — PowerPoint Deck Generator
+**Date:** 2026-06-15
+**Version:** v0.5.0
+**Status:** ✅ Complete
+
+### What Was Built
+- `src/pptgen.py` — 15-slide branded .pptx generator
+- Slides auto-populated from RFP analysis, product selection, and RAG knowledge
+- Nexus brand colors applied: navy #1F3864 headers, teal #0097A7 accents
+- Speaker notes generated per slide via gemma4:e4b
+
+### Models Used
+| Task | Model |
+|------|-------|
+| Slide bullet summarization | granite4.1:30b |
+| Executive narrative | qwen3.6:27b |
+| Speaker notes | gemma4:e4b |
+
+### Pipeline — Final State
+| Step | Output |
+|------|--------|
+| 1 | PDF extracted |
+| 2 | RFP analysis JSON |
+| 2b | Analysis JSON saved |
+| 3 | Compliance Excel matrix |
+| 4 | Customer summary Word doc |
+| 5 | Proposal draft Word doc |
+| 6 | Presentation deck .pptx |
+
+### Key Decisions
+- One Ollama call per slide section — consistent with Phase 4 pattern
+- XML markers for reliable bullet parsing
+- Architecture and pricing slides left as human-input placeholders
+- Deck reads directly from analysis JSON — no reprocessing needed
+
+### Metrics
+- Pipeline time: ~10 minutes end-to-end
+- External API cost: $0
+- Lines of code: ~600 (pptgen.py)
+
+### Lessons Learned
+- python-pptx layout indexes matter — wrong index silently breaks formatting
+- Brand colors applied at shape level, not theme level, for reliability
+- Speaker notes field is underused but high value for customer meetings
+
+### Next
+- Project 3 planning begins
+- LinkedIn full pipeline announcement posted
+- Claude memory updated
